@@ -4,6 +4,7 @@ using ASK.API.Dtos.AccountDtos;
 using ASK.API.Dtos.ErrorMessageDtos;
 using ASK.API.Helpers;
 using ASK.API.Infrastructure.Data;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -127,6 +128,7 @@ namespace ASK.API.Controllers
         }
 
         [HttpPost]
+        [AllowAnonymous]
         [Route("forgot-password")]
         public async Task<IActionResult> ForgotPassword([FromBody] RequestPasswordResetDto requestPasswordResetDto)
         {
@@ -137,14 +139,14 @@ namespace ASK.API.Controllers
                 return NotFound("User Not Found");
             }
 
-            var passwordResetToken = CreateRandomToken();
+            var passwordResetToken = await _userManager.GeneratePasswordResetTokenAsync(user);
 
             var message = new Message(new string[]
                         {
                 requestPasswordResetDto.Email
 
                         },
-                        "Reset Password Code",
+                        "Ask Reset Password Code",
                         passwordResetToken
                         );
 
@@ -158,67 +160,40 @@ namespace ASK.API.Controllers
         [Route("reset-password")]
         public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordDto resetPassword)
         {
+            var user = await _userManager.FindByEmailAsync(resetPassword.Email);
 
-            var user = await _userManager.Users.FirstOrDefaultAsync(x => x.PasswordResetToken == resetPassword.Token);
-
-            if (user == null || user.PasswordResetTokenExpiration < DateTime.Now)
+            if (user != null)
             {
-                return NotFound("Invalid Token");
+                var resetPasswordResult = await _userManager.ResetPasswordAsync(user, resetPassword.Token, resetPassword.Password);
+
+                if (!resetPasswordResult.Succeeded)
+                {
+                    foreach(var err in resetPasswordResult.Errors)
+                    {
+                        ModelState.AddModelError(err.Code, err.Description);
+
+                    }
+                    return Ok(ModelState);
+                }
+                var message = new Message(new string[]
+                        {
+                resetPassword.Email
+
+                        },
+                        "Password Reset Successfully",
+                        $"Your New ASK Password is {resetPassword.Password}"
+                        );
+
+                _emailService.SendEmail(message);
+                return StatusCode(StatusCodes.Status200OK, new ErrorMessage { title = "Success", message = "Password Changed Successfully" });
+
+
             }
 
-            var updateResult = await _userManager.UpdateAsync(user);
-
-            if (!updateResult.Succeeded)
-            {
-                return StatusCode(500, "Failed to update user");
-            }
-
-            return Ok("Password reset token has been sent to your email,You may now reset password");
+            return BadRequest();
 
         }
         [NonAction]
-        private string CreateRandomToken()
-        {
-            return Convert.ToHexString(RandomNumberGenerator.GetBytes(64));
-        }
-
-        //[HttpPost]
-        //[Route("reset-password")]
-        //public async Task<IActionResult> ResetPasswordRequest([FromBody] ResetPasswordModel resetPasswordModel)
-        //{
-        //    var user = await _userManager.FindByEmailAsync(resetPasswordModel.Email);
-
-        //    if (user == null)
-        //    {
-        //        return NotFound("User Not Found");
-        //    }
-
-        //    var storedHashedToken = user.PasswordResetToken;
-        //    var providedToken = resetPasswordModel.Token;
-        // //   var providedHashedToken = HashToken(providedToken);
-
-
-        //    //if (!string.Equals(storedHashedToken, providedHashedToken))
-        //    //{
-        //    //    return BadRequest("Invalid reset token");
-        //    //}
-
-        //    if (user.PasswordResetTokenExpiration == null || DateTimeOffset.UtcNow > user.PasswordResetTokenExpiration)
-        //    {
-        //        return BadRequest("Token has expired");
-        //    }
-
-        //    var resetResult = await _userManager.ResetPasswordAsync(user, storedHashedToken, resetPasswordModel.NewPassword);
-
-        //    if (resetResult.Succeeded)
-        //    {
-        //        return Ok("Password has been reset successfully");
-        //    }
-        //    else
-        //    {
-        //        return BadRequest("Failed to reset password");
-        //    }
-        //}
 
 
         [HttpPost]
