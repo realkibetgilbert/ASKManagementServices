@@ -71,6 +71,9 @@ namespace ASK.API.Controllers
             {
                 return BadRequest("User Already Exists");
             }
+
+            var password = registerUserDto.Password;
+
             var user = new AuthUser { UserName = registerUserDto.UserName, PhoneNumber = registerUserDto.PhoneNumber, Email = registerUserDto.Email, FirstName = registerUserDto.FirstName, LastName = registerUserDto.LastName, IsActive = true };
 
             var result = await _userManager.CreateAsync(user, registerUserDto.Password);
@@ -97,13 +100,24 @@ namespace ASK.API.Controllers
                     }
                 }
 
-                var message = new
+                var message = new Message(new string[]
+                    {
+                registerUserDto.Email
+
+                    },
+                    "ASK Password",
+                    password
+                    );
+
+                _emailService.SendEmail(message);
+
+                var res = new
                 {
                     title = "Success",
                     description = "User Registered successfully with roles"
                 };
 
-                return Ok(message);
+                return Ok(res);
             }
             else
             {
