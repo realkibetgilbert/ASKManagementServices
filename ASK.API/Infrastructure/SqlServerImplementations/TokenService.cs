@@ -19,7 +19,7 @@ namespace ASK.API.Infrastructure.SqlServerImplementations
         {
             var claims = new List<Claim>();
 
-            claims.Add(new Claim(ClaimTypes.Name, user.UserName));
+            claims.Add(new Claim(ClaimTypes.Email, user.Email));
 
             foreach (var role in roles)
             {

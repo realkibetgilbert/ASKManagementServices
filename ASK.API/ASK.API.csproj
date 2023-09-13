@@ -27,6 +27,7 @@
 
   <ItemGroup>
     <Folder Include="Infrastructure\ModelConfigurations\" />
+    <Folder Include="Images\" />
   </ItemGroup>
 
   <ItemGroup>

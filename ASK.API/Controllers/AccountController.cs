@@ -9,11 +9,8 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
-using System.Security.Cryptography;
-using System.Text;
 using UserManagement.Service.Models;
 using UserManagement.Service.Services;
-using static ASK.API.Dtos.AccountDtos.ResetPasswordDto;
 
 namespace ASK.API.Controllers
 {
@@ -26,14 +23,18 @@ namespace ASK.API.Controllers
         private readonly AskDbContext _context;
         private readonly ITokenService _tokenService;
         private readonly IEmailService _emailService;
+        private readonly IWebHostEnvironment _hostEnvironment;
+        private readonly ILogger<AccountController> _logger;
 
-        public AccountController(UserManager<AuthUser> userManager, RoleManager<IdentityRole<long>> roleManager, AskDbContext context, ITokenService tokenService, IEmailService emailService)
+        public AccountController(UserManager<AuthUser> userManager, RoleManager<IdentityRole<long>> roleManager, AskDbContext context, ITokenService tokenService, IEmailService emailService, IWebHostEnvironment hostEnvironment, ILogger<AccountController> logger)
         {
             _userManager = userManager;
             _roleManager = roleManager;
             _context = context;
             _tokenService = tokenService;
             _emailService = emailService;
+            _hostEnvironment = hostEnvironment;
+            _logger = logger;
         }
         [HttpPost]
         [Route("Roles")]
@@ -59,6 +60,8 @@ namespace ASK.API.Controllers
         [Route("GetRoles")]
         public async Task<IActionResult> GetRoles()
         {
+            _logger.LogError("Fetching Roles from Database");
+
             var roles = await _roleManager.Roles.ToListAsync();
 
             return Ok(roles);
@@ -66,7 +69,7 @@ namespace ASK.API.Controllers
         [HttpPost]
         [Route("Register")]
         [ValidateModel]
-        public async Task<IActionResult> Register(RegisterUserDto registerUserDto)
+        public async Task<IActionResult> Register([FromBody] RegisterUserDto registerUserDto)
         {
             if (_context.Users.Any(U => U.Email == registerUserDto.Email))
             {
@@ -106,8 +109,8 @@ namespace ASK.API.Controllers
                 registerUserDto.Email
 
                     },
-                    "ASK Password",
-                    password
+                    "Ask App Kenya",
+                    "You have Successfully Register To Ask App Kenya .Thank you for your interest.Please Proceed To Login To Start Enjoying The Services"
                     );
 
                 _emailService.SendEmail(message);
@@ -168,7 +171,7 @@ namespace ASK.API.Controllers
 
                 if (!resetPasswordResult.Succeeded)
                 {
-                    foreach(var err in resetPasswordResult.Errors)
+                    foreach (var err in resetPasswordResult.Errors)
                     {
                         ModelState.AddModelError(err.Code, err.Description);
 
@@ -193,14 +196,11 @@ namespace ASK.API.Controllers
             return BadRequest();
 
         }
-        [NonAction]
-
-
         [HttpPost]
         [Route("login")]
         public async Task<IActionResult> Login(LoginDto login)
         {
-            var user = await _userManager.FindByNameAsync(login.UserName);
+            var user = await _userManager.FindByEmailAsync(login.Email);
 
             if (user != null)
             {
@@ -256,5 +256,22 @@ namespace ASK.API.Controllers
 
             return BadRequest(invalidCredentials);
         }
+
+        [NonAction]
+        public async Task<string> SaveImage(IFormFile imageFile, HttpContext httpContext)
+        {
+            string imageName = new String(Path.GetFileNameWithoutExtension(imageFile.FileName).Take(10).ToArray()).Replace(' ', '-');
+
+            imageName = imageName + DateTime.Now.ToString("yymmssfff") + Path.GetExtension(imageFile.FileName);
+
+            var imagePath = Path.Combine(_hostEnvironment.ContentRootPath, "Images", imageName);
+
+            using (var fileStream = new FileStream(imagePath, FileMode.Create))
+            {
+                await imageFile.CopyToAsync(fileStream);
+            }
+            return imageName;
+        }
+
     }
 }

@@ -32,6 +32,8 @@ namespace ASK.API.Extensions
             });
 
             services.AddAutoMapper(typeof(MappingProfile));
+
+
             var emailConfig = config.GetSection("EmailConfiguration").Get<EmailConfiguration>();
             services.AddSingleton(emailConfig);
             services.AddScoped<IEmailService, EmailService>();

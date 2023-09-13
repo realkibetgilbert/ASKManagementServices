@@ -4,6 +4,10 @@ using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
+
+//Configure serilog
+builder.ConfigureSerilog();
+
 // Add services to the container.
 builder.Services.AddApplicationServices(builder.Configuration, builder.Environment);
 
