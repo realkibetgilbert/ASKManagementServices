@@ -16,7 +16,7 @@ namespace ASK.API.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    public class AccountController : ControllerBase
+    public class IdentityController : ControllerBase
     {
         private readonly UserManager<AuthUser> _userManager;
         private readonly RoleManager<IdentityRole<long>> _roleManager;
@@ -24,9 +24,9 @@ namespace ASK.API.Controllers
         private readonly ITokenService _tokenService;
         private readonly IEmailService _emailService;
         private readonly IWebHostEnvironment _hostEnvironment;
-        private readonly ILogger<AccountController> _logger;
+        private readonly ILogger<IdentityController> _logger;
 
-        public AccountController(UserManager<AuthUser> userManager, RoleManager<IdentityRole<long>> roleManager, AskDbContext context, ITokenService tokenService, IEmailService emailService, IWebHostEnvironment hostEnvironment, ILogger<AccountController> logger)
+        public IdentityController(UserManager<AuthUser> userManager, RoleManager<IdentityRole<long>> roleManager, AskDbContext context, ITokenService tokenService, IEmailService emailService, IWebHostEnvironment hostEnvironment, ILogger<IdentityController> logger)
         {
             _userManager = userManager;
             _roleManager = roleManager;
@@ -36,36 +36,7 @@ namespace ASK.API.Controllers
             _hostEnvironment = hostEnvironment;
             _logger = logger;
         }
-        [HttpPost]
-        [Route("Roles")]
-        [ValidateModel]
-        public async Task<IActionResult> CreateRoles([FromBody] RoleDto roleDto)
-        {
-            var role = new IdentityRole<long> { Name = roleDto.Name };
 
-            var result = await _roleManager.CreateAsync(role);
-
-            if (result.Succeeded)
-            {
-                return Ok(new { Name = role.Name });
-            }
-
-            else
-            {
-                return BadRequest(result.Errors);
-            }
-        }
-
-        [HttpGet]
-        [Route("GetRoles")]
-        public async Task<IActionResult> GetRoles()
-        {
-            _logger.LogError("Fetching Roles from Database");
-
-            var roles = await _roleManager.Roles.ToListAsync();
-
-            return Ok(roles);
-        }
         [HttpPost]
         [Route("Register")]
         [ValidateModel]
@@ -128,6 +99,66 @@ namespace ASK.API.Controllers
 
                 return BadRequest(result.Errors);
             }
+        }
+        [HttpPost]
+        [Route("login")]
+        public async Task<IActionResult> Login(LoginDto login)
+        {
+            var user = await _userManager.FindByEmailAsync(login.Email);
+
+            if (user != null)
+            {
+                if (!user.IsActive)
+                {
+                    var error = new ErrorMessage
+                    {
+                        title = "Error",
+                        message = "This User Is Deactivated"
+                    };
+
+                    return BadRequest(error);
+                }
+
+                bool checkPasswordResult = await _userManager.CheckPasswordAsync(user, login.Password);
+
+                if (checkPasswordResult)
+                {
+                    var roles = await _userManager.GetRolesAsync(user);
+
+                    var jwtToken = _tokenService.CreateJwtToken(user, roles.ToList());
+
+                    var res = new LoginResponseDto()
+                    {
+                        id = user.Id,
+                        username = user.UserName,
+                        firstName = user.FirstName,
+                        lastName = user.LastName,
+                        token = jwtToken
+                    };
+                    var jsonRes = JsonConvert.SerializeObject(res);
+
+                    return Content(jsonRes, "application/json");
+                }
+                else
+                {
+                    var error = new ErrorMessage()
+                    {
+                        title = "Invalid Credentials",
+                        message = "The Submitted Login Credentials are Invalid"
+                    };
+
+                    return BadRequest(error);
+
+                }
+            }
+
+            var invalidCredentials = new ErrorMessage()
+            {
+                title = "Invalid Credentials",
+                message = "The Submitted Login Credentials are Invalid"
+            };
+
+            return BadRequest(invalidCredentials);
         }
 
         [HttpPost]
@@ -196,82 +227,38 @@ namespace ASK.API.Controllers
             return BadRequest();
 
         }
+
         [HttpPost]
-        [Route("login")]
-        public async Task<IActionResult> Login(LoginDto login)
+        [Route("Roles")]
+        [ValidateModel]
+        public async Task<IActionResult> CreateRoles([FromBody] RoleDto roleDto)
         {
-            var user = await _userManager.FindByEmailAsync(login.Email);
+            var role = new IdentityRole<long> { Name = roleDto.Name };
 
-            if (user != null)
+            var result = await _roleManager.CreateAsync(role);
+
+            if (result.Succeeded)
             {
-                if (!user.IsActive)
-                {
-                    var error = new ErrorMessage
-                    {
-                        title = "Error",
-                        message = "This User Is Deactivated"
-                    };
-
-                    return BadRequest(error);
-                }
-
-                bool checkPasswordResult = await _userManager.CheckPasswordAsync(user, login.Password);
-
-                if (checkPasswordResult)
-                {
-                    var roles = await _userManager.GetRolesAsync(user);
-
-                    var jwtToken = _tokenService.CreateJwtToken(user, roles.ToList());
-
-                    var res = new LoginResponseDto()
-                    {
-                        id = user.Id,
-                        username = user.UserName,
-                        firstName = user.FirstName,
-                        lastName = user.LastName,
-                        token = jwtToken
-                    };
-                    var jsonRes = JsonConvert.SerializeObject(res);
-
-                    return Content(jsonRes, "application/json");
-                }
-                else
-                {
-                    var error = new ErrorMessage()
-                    {
-                        title = "Invalid Credentials",
-                        message = "The Submitted Login Credentials are Invalid"
-                    };
-
-                    return BadRequest(error);
-
-                }
+                return Ok(new { Name = role.Name });
             }
 
-            var invalidCredentials = new ErrorMessage()
+            else
             {
-                title = "Invalid Credentials",
-                message = "The Submitted Login Credentials are Invalid"
-            };
-
-            return BadRequest(invalidCredentials);
-        }
-
-        [NonAction]
-        public async Task<string> SaveImage(IFormFile imageFile, HttpContext httpContext)
-        {
-            string imageName = new String(Path.GetFileNameWithoutExtension(imageFile.FileName).Take(10).ToArray()).Replace(' ', '-');
-
-            imageName = imageName + DateTime.Now.ToString("yymmssfff") + Path.GetExtension(imageFile.FileName);
-
-            var imagePath = Path.Combine(_hostEnvironment.ContentRootPath, "Images", imageName);
-
-            using (var fileStream = new FileStream(imagePath, FileMode.Create))
-            {
-                await imageFile.CopyToAsync(fileStream);
+                return BadRequest(result.Errors);
             }
-            return imageName;
         }
+
+        [HttpGet]
+        [Route("GetRoles")]
+        public async Task<IActionResult> GetRoles()
+        {
+            _logger.LogError("Fetching Roles from Database");
+
+            var roles = await _roleManager.Roles.ToListAsync();
+
+            return Ok(roles);
+        }
+
 
     }
 }
