@@ -8,6 +8,7 @@ namespace ASK.API.Core.Entities
         public string LastName { get; set; }
         public bool IsActive { get; set; }
         public string? PasswordResetToken { get; set; }
+        public string? RealPasswordResetToken { get; set; }
         public DateTimeOffset? PasswordResetTokenExpiration { get; set; }
     }
 }

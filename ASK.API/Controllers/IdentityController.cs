@@ -9,8 +9,11 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
+using shortid.Configuration;
+using shortid;
 using UserManagement.Service.Models;
 using UserManagement.Service.Services;
+using System.Text;
 
 namespace ASK.API.Controllers
 {
@@ -38,68 +41,84 @@ namespace ASK.API.Controllers
         }
 
         [HttpPost]
-        [Route("Register")]
+        [Route("register")]
         [ValidateModel]
         public async Task<IActionResult> Register([FromBody] RegisterUserDto registerUserDto)
         {
             if (_context.Users.Any(U => U.Email == registerUserDto.Email))
             {
-                return BadRequest("User Already Exists");
+                return BadRequest("User already exists");
             }
 
-            var password = registerUserDto.Password;
+            var phoneNumber = PhoneNumberFormater.FormatThePhoneNumber(registerUserDto.PhoneNumber);
 
-            var user = new AuthUser { UserName = registerUserDto.UserName, PhoneNumber = registerUserDto.PhoneNumber, Email = registerUserDto.Email, FirstName = registerUserDto.FirstName, LastName = registerUserDto.LastName, IsActive = true };
+            string fullName = registerUserDto.FullName;
+
+            string[] nameParts = fullName.Split(new char[] { ' ' }, 2);
+
+            string firstName = nameParts[0];
+
+            string lastName = nameParts.Length > 1 ? nameParts[1] : null;
+
+            var user = new AuthUser
+            {
+                PhoneNumber = phoneNumber,
+                Email = registerUserDto.Email,
+                UserName = registerUserDto.Email,
+                FirstName = firstName,
+                LastName = lastName,
+                IsActive = true
+            };
 
             var result = await _userManager.CreateAsync(user, registerUserDto.Password);
 
             if (result.Succeeded)
             {
-                if (registerUserDto.Roles != null && registerUserDto.Roles.Length > 0)
+                var customerRoleExists = await _roleManager.RoleExistsAsync("Customer");
+
+                if (customerRoleExists)
                 {
-                    foreach (var roleName in registerUserDto.Roles)
+                    var addToRoleResult = await _userManager.AddToRoleAsync(user, "Customer");
+
+                    if (addToRoleResult.Succeeded)
                     {
-                        var existingRole = await _roleManager.FindByNameAsync(roleName);
-
-                        if (existingRole != null)
+                        var message = new Message(new string[]
                         {
-                            var addToRoleResult = await _userManager.AddToRoleAsync(user, roleName);
+                    registerUserDto.Email
+                        },
+                        "Ask App Kenya",
+                        "You have successfully registered To Ask App Kenya.Please proceed to login to start enjoying the services."
+                        );
 
-                            if (!addToRoleResult.Succeeded)
-                            {
-                                await _userManager.DeleteAsync(user);
+                        _emailService.SendEmail(message);
 
-                                return BadRequest(addToRoleResult.Errors);
-                            }
-                        }
+                        var res = new
+                        {
+                            title = "Success",
+                            description = "User registered successfully"
+                        };
+
+                        return Ok(res);
+                    }
+                    else
+                    {
+                        await _userManager.DeleteAsync(user);
+
+                        return BadRequest(addToRoleResult.Errors);
                     }
                 }
-
-                var message = new Message(new string[]
-                    {
-                registerUserDto.Email
-
-                    },
-                    "Ask App Kenya",
-                    "You have Successfully Register To Ask App Kenya .Thank you for your interest.Please Proceed To Login To Start Enjoying The Services"
-                    );
-
-                _emailService.SendEmail(message);
-
-                var res = new
+                else
                 {
-                    title = "Success",
-                    description = "User Registered successfully with roles"
-                };
-
-                return Ok(res);
+                    return BadRequest("The 'Customer' role does not exist.");
+                }
             }
+
             else
             {
-
                 return BadRequest(result.Errors);
             }
         }
+
         [HttpPost]
         [Route("login")]
         public async Task<IActionResult> Login(LoginDto login)
@@ -135,6 +154,7 @@ namespace ASK.API.Controllers
                         lastName = user.LastName,
                         token = jwtToken
                     };
+
                     var jsonRes = JsonConvert.SerializeObject(res);
 
                     return Content(jsonRes, "application/json");
@@ -172,22 +192,39 @@ namespace ASK.API.Controllers
             {
                 return NotFound("User Not Found");
             }
+        
 
-            var passwordResetToken = await _userManager.GeneratePasswordResetTokenAsync(user);
+            string resetCode = ResetCodeHelper.GenerateResetCode();
 
-            var message = new Message(new string[]
-                        {
+            var encodedResetCode = Convert.ToBase64String(Encoding.UTF8.GetBytes(resetCode));
+
+            var hashedResetPasswordToken = await _userManager.GeneratePasswordResetTokenAsync(user);
+
+            user.RealPasswordResetToken = hashedResetPasswordToken;
+
+            user.PasswordResetToken = encodedResetCode;
+
+            user.PasswordResetTokenExpiration = DateTimeOffset.UtcNow.AddDays(1);
+
+            var result = await _userManager.UpdateAsync(user);
+
+            if (result.Succeeded)
+            {
+                var message = new Message(new string[]
+                            {
                 requestPasswordResetDto.Email
 
-                        },
-                        "Ask Reset Password Code",
-                        passwordResetToken
-                        );
+                            },
+                            "Ask Reset Password Code",
+                            resetCode
+                            );
 
-            _emailService.SendEmail(message);
+                _emailService.SendEmail(message);
 
-            return Ok("Password reset token has been sent to your email,You may now reset password");
+                return Ok("Password reset token has been sent to your email,You may now reset password");
+            }
 
+            return BadRequest();
         }
 
         [HttpPost]
@@ -198,35 +235,55 @@ namespace ASK.API.Controllers
 
             if (user != null)
             {
-                var resetPasswordResult = await _userManager.ResetPasswordAsync(user, resetPassword.Token, resetPassword.Password);
+                var encodedIncomingToken = Convert.ToBase64String(Encoding.UTF8.GetBytes(resetPassword.Token));
 
-                if (!resetPasswordResult.Succeeded)
+                if (encodedIncomingToken == user.PasswordResetToken)
                 {
-                    foreach (var err in resetPasswordResult.Errors)
+                    if (user.PasswordResetTokenExpiration.HasValue && user.PasswordResetTokenExpiration.Value >= DateTimeOffset.UtcNow)
                     {
-                        ModelState.AddModelError(err.Code, err.Description);
+                        var realResetPasswordToken = user.RealPasswordResetToken;
+                        
+                        var resetPasswordResult = await _userManager.ResetPasswordAsync(user, realResetPasswordToken, resetPassword.Password);
 
-                    }
-                    return Ok(ModelState);
-                }
-                var message = new Message(new string[]
+                        if (resetPasswordResult.Succeeded)
                         {
-                resetPassword.Email
+                            var message = new Message(new string[]
+                            {
+                        resetPassword.Email
+                            },
+                            "Password Reset Successfully",
+                            "Your password has been successfully reset.");
 
-                        },
-                        "Password Reset Successfully",
-                        $"Your New ASK Password is {resetPassword.Password}"
-                        );
+                            _emailService.SendEmail(message);
 
-                _emailService.SendEmail(message);
-                return StatusCode(StatusCodes.Status200OK, new ErrorMessage { title = "Success", message = "Password Changed Successfully" });
-
-
+                            return StatusCode(StatusCodes.Status200OK, new  { Title = "Success", Message = "Password changed successfully" });
+                        }
+                        else
+                        {
+                            foreach (var err in resetPasswordResult.Errors)
+                            {
+                                ModelState.AddModelError(err.Code, err.Description);
+                            }
+                            return Ok(ModelState);
+                        }
+                    }
+                    else
+                    {
+                        ModelState.AddModelError("ExpiredToken", "Password reset token has expired.");
+                        return BadRequest(ModelState);
+                    }
+                }
+                else
+                {
+                    ModelState.AddModelError("InvalidToken", "Invalid password reset token.");
+                    return BadRequest(ModelState);
+                }
             }
 
             return BadRequest();
-
         }
+
+        
 
         [HttpPost]
         [Route("Roles")]
