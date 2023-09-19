@@ -8,6 +8,8 @@ var builder = WebApplication.CreateBuilder(args);
 //Configure serilog
 builder.ConfigureSerilog();
 
+builder.WebHost.UseUrls("http://0.0.0.0:", "https://0.0.0.0:5001");
+
 // Add services to the container.
 builder.Services.AddApplicationServices(builder.Configuration, builder.Environment);
 

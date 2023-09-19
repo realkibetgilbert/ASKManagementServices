@@ -47,7 +47,12 @@ namespace ASK.API.Controllers
         {
             if (_context.Users.Any(U => U.Email == registerUserDto.Email))
             {
-                return BadRequest("User already exists");
+                var error = new ErrorMessage
+                {
+                    title = "fail",
+                    message = "User with the email Already Exists"
+                };
+                return BadRequest(error);
             }
 
             var phoneNumber = PhoneNumberFormater.FormatThePhoneNumber(registerUserDto.PhoneNumber);
@@ -86,36 +91,61 @@ namespace ASK.API.Controllers
                         {
                     registerUserDto.Email
                         },
-                        "Ask App Kenya",
+                        "Ask App Kenya Registration",
                         "You have successfully registered To Ask App Kenya.Please proceed to login to start enjoying the services."
                         );
 
                         _emailService.SendEmail(message);
 
-                        var res = new
+                        var roles = await _userManager.GetRolesAsync(user);
+
+                        var jwtToken = _tokenService.CreateJwtToken(user, roles.ToList());
+
+                        var response = new LoginResponseDto()
                         {
-                            title = "Success",
-                            description = "User registered successfully"
+                            id = user.Id,
+                            userName = user.Email,
+                            firstName = user.FirstName,
+                            lastName = user.LastName,
+                            phoneNumber = user.PhoneNumber,
+                            token = jwtToken
                         };
 
-                        return Ok(res);
+                        var jsonRes = JsonConvert.SerializeObject(response);
+
+                        return Content(jsonRes, "application/json");
                     }
                     else
                     {
                         await _userManager.DeleteAsync(user);
 
-                        return BadRequest(addToRoleResult.Errors);
+                        var error = new ErrorMessage
+                        {
+                            title = "fail",
+                            message = addToRoleResult.Errors.ToString(),
+
+                        };
+
+                        return BadRequest(error);
                     }
                 }
                 else
                 {
-                    return BadRequest("The 'Customer' role does not exist.");
+                    var error = new ErrorMessage { title = "fail", message = "The Customer Role Does Not Exist" };
+
+                    return BadRequest(error);
                 }
             }
 
             else
             {
-                return BadRequest(result.Errors);
+                var error = new ErrorMessage
+                {
+                    title = "fail",
+                    message = result.Errors.ToString()
+                };
+
+                return BadRequest(error);
             }
         }
 
@@ -149,9 +179,10 @@ namespace ASK.API.Controllers
                     var res = new LoginResponseDto()
                     {
                         id = user.Id,
-                        username = user.UserName,
+                        userName = user.Email,
                         firstName = user.FirstName,
                         lastName = user.LastName,
+                        phoneNumber = user.PhoneNumber,
                         token = jwtToken
                     };
 
@@ -190,9 +221,15 @@ namespace ASK.API.Controllers
 
             if (user == null)
             {
-                return NotFound("User Not Found");
+                var error = new ErrorMessage
+                {
+                    title = "Fail",
+                    message = "User Not Found"
+
+                };
+                return NotFound(error);
             }
-        
+
 
             string resetCode = ResetCodeHelper.GenerateResetCode();
 
@@ -215,16 +252,28 @@ namespace ASK.API.Controllers
                 requestPasswordResetDto.Email
 
                             },
-                            "Ask Reset Password Code",
+                            "Ask App Kenya Password Reset Code",
                             resetCode
                             );
 
                 _emailService.SendEmail(message);
 
-                return Ok("Password reset token has been sent to your email,You may now reset password");
+                var successMessage = new ErrorMessage
+                {
+                    title = "Success",
+                    message = "Password Reset Code Has Been Sent To Your Email. Please Check and Proceed To Reset Your Password"
+                };
+
+                return Ok(successMessage);
             }
 
-            return BadRequest();
+            var errorMessage = new ErrorMessage
+            {
+                title = "Fail",
+                message = result.Errors.ToString()
+            };
+
+            return BadRequest(errorMessage);
         }
 
         [HttpPost]
@@ -242,7 +291,7 @@ namespace ASK.API.Controllers
                     if (user.PasswordResetTokenExpiration.HasValue && user.PasswordResetTokenExpiration.Value >= DateTimeOffset.UtcNow)
                     {
                         var realResetPasswordToken = user.RealPasswordResetToken;
-                        
+
                         var resetPasswordResult = await _userManager.ResetPasswordAsync(user, realResetPasswordToken, resetPassword.Password);
 
                         if (resetPasswordResult.Succeeded)
@@ -251,39 +300,53 @@ namespace ASK.API.Controllers
                             {
                         resetPassword.Email
                             },
-                            "Password Reset Successfully",
-                            "Your password has been successfully reset.");
+                            "Ask App Kenya Password Reset",
+                            "Your password has been successfully reset.Please Proceed To Login");
 
                             _emailService.SendEmail(message);
 
-                            return StatusCode(StatusCodes.Status200OK, new  { Title = "Success", Message = "Password changed successfully" });
+                            var successMessage = new ErrorMessage
+                            {
+                                title = "Success",
+                                message = "Password Change Successfully"
+                            };
+
+                            return Ok(successMessage);
                         }
                         else
                         {
                             foreach (var err in resetPasswordResult.Errors)
                             {
+
                                 ModelState.AddModelError(err.Code, err.Description);
                             }
+
                             return Ok(ModelState);
                         }
                     }
                     else
                     {
                         ModelState.AddModelError("ExpiredToken", "Password reset token has expired.");
+
                         return BadRequest(ModelState);
                     }
                 }
                 else
                 {
                     ModelState.AddModelError("InvalidToken", "Invalid password reset token.");
+
                     return BadRequest(ModelState);
                 }
             }
+            var error = new ErrorMessage
+            {
+                title = "Fail",
+                message = "User Not Found"
 
-            return BadRequest();
+            };
+
+            return BadRequest(error);
         }
-
-        
 
         [HttpPost]
         [Route("Roles")]

@@ -12,9 +12,8 @@ namespace ASK.API.Extensions
                 c.SwaggerDoc("v1", new OpenApiInfo
                 {
                     Version = "v1",
-                    Title = "ASK SERVICE API",
-                    Description = "This API provides all endpoints for ASK services",
-
+                    Title = "ASK APP KENYA SERVICES",
+                    Description = "This API provides all endpoints for ASK App Kenya Services",
                 });
 
             });
